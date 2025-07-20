@@ -4,14 +4,14 @@ from dotenv import load_dotenv
 import os
 import google.generativeai as genai
 
-# ----------------- LOAD ENV ------------------
+
 load_dotenv()
 API_KEY = os.getenv("GEMINI_API_KEY")
 
-# ----------------- CONFIG ------------------
+
 st.set_page_config(page_title="MiniBot Gemini", layout="wide")
 
-# Custom CSS for styling
+
 st.markdown("""
     <style>
     body {
@@ -55,23 +55,24 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# ----------------- API Check ------------------
+
 if not API_KEY:
     st.error("🚨 API Key not found. Please add it to your `.env` file as GEMINI_API_KEY.")
     st.stop()
 
-# ----------------- Gemini Setup ------------------
+
 genai.configure(api_key=API_KEY)
 model = genai.GenerativeModel("models/gemini-1.5-pro-latest")
 
-# ----------------- Session State ------------------
+
+
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
 if "persona" not in st.session_state:
     st.session_state.persona = "General"
 
-# ----------------- SIDEBAR ------------------
+
 with st.sidebar:
     st.markdown("## 🌐 MiniBot", unsafe_allow_html=True)
     st.markdown("<button class='persona-button'>+ New Chat</button>", unsafe_allow_html=True)
@@ -79,7 +80,7 @@ with st.sidebar:
     for i, (user, bot) in enumerate(st.session_state.chat_history):
         st.markdown(f"**🧑‍💻 You:** {user}<br>**🤖 Bot:** {bot}", unsafe_allow_html=True)
 
-# ----------------- Welcome Header ------------------
+
 st.markdown("""
     <div style="text-align: center; padding: 2em;">
         <h2 style="color: #38bdf8;">🤖 Welcome to MiniBot</h2>
@@ -87,7 +88,7 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-# ----------------- Persona Selection ------------------
+
 cols = st.columns(4)
 personas = ["🧠 Concept", "💻 Coding", "✍️ Writing", "📊 Analysis"]
 
@@ -99,19 +100,19 @@ for i in range(4):
 
 st.markdown("---")
 
-# ----------------- Chat Messages ------------------
+
 for user, bot in st.session_state.chat_history:
     message(user, is_user=True, key=user + "_user")
     message(bot, key=bot + "_bot")
 
-# ----------------- Chat Input ------------------
+
 col1, col2 = st.columns([8, 1])
 with col1:
     user_input = st.text_input("Type your message...", key="user_input", label_visibility="collapsed")
 with col2:
     send = st.button("📤", use_container_width=True)
 
-# ----------------- Chat Logic ------------------
+
 if send and user_input:
     persona_prefix = {
         "🧠 Concept": "You are an expert concept explainer. Make it simple and intuitive.",
@@ -130,5 +131,5 @@ if send and user_input:
     except Exception as e:
         st.error(f"❌ Gemini API Error: {e}")
 
-# ----------------- Placeholder for Mic ------------------
+
 st.markdown("🔊 Voice input coming soon...", unsafe_allow_html=True)

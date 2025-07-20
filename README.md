@@ -18,7 +18,7 @@ Mini Bot is a Streamlit-powered chatbot that supports both text and voice input.
 
 1. **Clone the repository:**
    ```
-   git clone <your-repo-url>
+   git clone <https://github.com/sania0607/miniBot>
    cd Mini-bot
    ```
 

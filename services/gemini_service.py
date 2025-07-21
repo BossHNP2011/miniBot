@@ -1,90 +1,117 @@
 import google.generativeai as genai
 import os
-from dotenv import load_dotenv
-import chromadb
-from chromadb.config import Settings
-from chromadb import Client
-import uuid  
+from typing import List, Tuple, Optional
 
-load_dotenv()
-api_key = os.getenv("GEMINI_API_KEY")
 
-if not api_key:
-    raise ValueError("⚠️ GEMINI_API_KEY not found in .env file.")
+def configure_gemini():
+    """Configure Gemini API with your API key"""
+    api_key = os.getenv("GOOGLE_API_KEY")  
+    if not api_key:
+        raise ValueError("GOOGLE_API_KEY environment variable is not set")
+    genai.configure(api_key=api_key)
 
-genai.configure(api_key=api_key)  
-
-model = genai.GenerativeModel("gemini-2.5-flash")
-
-# Initialize ChromaDB client and collection for memory storage
-chroma_client = Client(Settings(allow_reset=True, anonymized_telemetry=False))
-memory_store = chroma_client.get_or_create_collection("mini_bot_memory")
-
-def summarize_chunk(chunk: list[tuple[str, str]]) -> str:
-    """Summarizes a chunk of conversation for memory compression."""
-    formatted = "\n".join([f"{role}: {msg}" for role, msg in chunk])
-    summary_prompt = f"Summarize this conversation:\n\n{formatted}"
+def get_gemini_response(messages: List[Tuple[str, str]], system_instruction: Optional[str] = None) -> str:
+    """
+    Get response from Gemini API
+    
+    Args:
+        messages: List of (role, content) tuples where role is 'user' or 'model'
+        system_instruction: Optional system instruction for the model
+    
+    Returns:
+        str: The model's response
+    """
     try:
-        summary = model.generate_content(summary_prompt)
-        return summary.text
+        configure_gemini()
+        
+        
+        model_name = "gemini-1.5-flash"  
+        
+        if system_instruction:
+            model = genai.GenerativeModel(
+                model_name=model_name,
+                system_instruction=system_instruction
+            )
+        else:
+            model = genai.GenerativeModel(model_name=model_name)
+        
+        
+        chat_history = []
+        current_message = None
+        
+        for role, content in messages:
+            if role == "user":
+                if current_message:
+                    chat_history.append(current_message)
+                current_message = {"role": "user", "parts": [content]}
+            elif role == "model":
+                if current_message:
+                    chat_history.append(current_message)
+                current_message = {"role": "model", "parts": [content]}
+        
+        
+        if len(messages) > 1:
+            
+            chat = model.start_chat(history=chat_history[:-1])  
+            if current_message and current_message["role"] == "user":
+                response = chat.send_message(current_message["parts"][0])
+            else:
+                
+                response = chat.send_message("")
+        else:
+            
+            if current_message and current_message["role"] == "user":
+                response = model.generate_content(current_message["parts"][0])
+            else:
+                response = model.generate_content("")
+        
+        return response.text
+        
     except Exception as e:
-        return f"❌ Error while summarizing: {e}"
+        return f"Error communicating with Gemini: {str(e)}"
 
-def embed_and_store_summary(summary: str, uid: str):
-    """Embeds the summary and stores it in ChromaDB."""
+
+def get_gemini_response_rest(messages: List[Tuple[str, str]], system_instruction: Optional[str] = None) -> str:
+    """
+    Alternative implementation using REST API directly
+    """
+    import requests
+    import json
+    
     try:
-        embedding = genai.embed_content(
-            model="models/embedding-001",
-            content=summary,
-            task_type="semantic_similarity"
-        )["embedding"]
-        memory_store.add(documents=[summary], embeddings=[embedding], ids=[uid])
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            raise ValueError("GOOGLE_API_KEY environment variable is not set")
+        
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        
+        
+        contents = []
+        for role, content in messages:
+            if role in ["user", "model"]:  
+                contents.append({
+                    "role": role,
+                    "parts": [{"text": content}]
+                })
+        
+        payload = {"contents": contents}
+        
+        
+        if system_instruction:
+            payload["systemInstruction"] = {
+                "parts": [{"text": system_instruction}]
+            }
+        
+        headers = {"Content-Type": "application/json"}
+        
+        response = requests.post(url, headers=headers, data=json.dumps(payload))
+        response.raise_for_status()
+        
+        result = response.json()
+        if "candidates" in result and len(result["candidates"]) > 0:
+            return result["candidates"][0]["content"]["parts"][0]["text"]
+        else:
+            return "Error: No response generated"
+            
     except Exception as e:
-        print(f"❌ Error embedding/storing summary: {e}")
-
-def search_relevant_memory(query: str, top_k=3) -> list[str]:
-    """Searches ChromaDB for top relevant memory summaries based on query."""
-    try:
-        query_embedding = genai.embed_content(
-            model="models/embedding-001",
-            content=query,
-            task_type="semantic_similarity"
-        )["embedding"]
-        results = memory_store.query(query_embeddings=[query_embedding], n_results=top_k)
-        # Return list of documents (summaries), empty list if none found
-        return results["documents"][0] if results["documents"] else []
-    except Exception as e:
-        print(f"❌ Error during memory retrieval: {e}")
-        return []
-
-def get_gemini_response(messages: list[tuple[str, str]]) -> str:
-    try:
-        recent_messages = messages[-6:]  
-        last_user_msg = [m[1] for m in reversed(messages) if m[0] == "user"]
-        query = last_user_msg[0] if last_user_msg else ""
-
-        relevant_memories = search_relevant_memory(query)
-        memory_context = "\n\n".join(relevant_memories)
-
-        formatted_messages = []
-        for i, (role, content) in enumerate(recent_messages):
-            # Map roles: 'user' stays 'user', 'ai' becomes 'model'
-            gemini_role = "model" if role == "ai" else role
-
-            if i == len(recent_messages) - 1 and role == "user" and memory_context:
-                content = memory_context + "\n\n" + content
-
-            formatted_messages.append({"role": gemini_role, "parts": [content]})
-
-        response = model.generate_content(formatted_messages)
-        answer = response.text
-
-        full_chunk = recent_messages + [("model", answer)]
-        summary = summarize_chunk(full_chunk)
-        uid = str(uuid.uuid4())  
-        embed_and_store_summary(summary, uid)
-
-        return answer
-
-    except Exception as e:
-        return f"❌ Error: {e}"
+        return f"Error communicating with Gemini: {str(e)}"
